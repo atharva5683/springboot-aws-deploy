@@ -1,5 +1,4 @@
 version: 0.2
-
 env:
   secrets-manager:
     TOKEN: Sonar:Sonar
@@ -9,70 +8,65 @@ phases:
   install:
     runtime-versions:
       java: latest
-      nodejs: latest
-    commands:
-      - echo Installing required tools...
-      - apt-get update
-      - apt-get install -y jq maven wget default-jdk
-
-  pre_build:
-    commands:
-      - echo Logging in to Amazon ECR...
-      - aws --version
-      - aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 211125661501.dkr.ecr.ap-south-1.amazonaws.com
-      - export REPOSITORY_URI=211125661501.dkr.ecr.ap-south-1.amazonaws.com/springboot
-      - export IMAGE_TAG=build-$(echo $CODEBUILD_BUILD_ID | awk -F":" '{print $2}')
-
   build:
     commands:
-      # Static Application Security Scan (SAST) using SonarCloud
-      - echo Running Static Application Security Scan (SAST)...
+      # Static Application Security Scan (SAST scan) using SonarCloud
       - mvn verify sonar:sonar -Dsonar.projectKey=javaprojectawscicd -Dsonar.organization=javaprojectawscicd -Dsonar.host.url=https://sonarcloud.io -Dsonar.token=$TOKEN
 
-      # Quality Gates for SAST Scan
-      - echo Checking SonarCloud quality gate status...
+      # Quality Gates for Static Application Security Scan (SAST) using SonarCloud
       - sleep 5
       - |
-        quality_status=$(curl -s -u $TOKEN: https://sonarcloud.io/api/qualitygates/project_status?projectKey=javaprojectawscicd | jq -r '.projectStatus.status')
+        quality_status=$(curl -s -u $TOKEN: https://sonarcloud.io/api/qualitygates/project_status?projectKey=javaprojectaws | jq -r '.projectStatus.status')
         echo "SonarCloud analysis status is $quality_status"
-        if [ "$quality_status" = "ERROR" ]; then
-          echo "Quality Gate failed. Exiting build."
-          exit 1
-        fi
+        if [ "$quality_status" = "ERROR" ]; then exit 1; fi
 
-      # Software Composition Analysis (SCA) using Snyk
-      - echo Running Software Composition Analysis (SCA) with Snyk...
+      # Software Composition Analysis Scan (SCA scan) using Snyk
+      - apt-get update && apt-get -y install maven
       - export SNYK_TOKEN=$SNYK
       - snyk auth
-      - snyk test --all-projects
+      - mvn snyk:test -fn
 
-      # Dynamic Application Security Scan (DAST) using OWASP ZAP
-      - echo Running Dynamic Application Security Scan (DAST) with OWASP ZAP...
+      # Dynamic Application Security Scan (DAST scan) using OWASP ZAP
+      - apt-get update && apt-get -y install wget default-jdk
       - wget https://github.com/zaproxy/zaproxy/releases/download/v2.16.0/ZAP_2.16.0_Linux.tar.gz
       - tar -xvf ZAP_2.16.0_Linux.tar.gz
       - cd ZAP_2.16.0
       - ./zap.sh -cmd -quickurl https://www.example.com -quickprogress -quickout ../zap_report.html
-      - cd ..
-
-      # Build and Dockerize Application
-      - echo Building the application JAR file...
-      - mvn clean install
-      - echo Building Docker image...
-      - docker build -t $REPOSITORY_URI:latest .
-      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
-
-  post_build:
-    commands:
-      - echo Build completed. Pushing Docker image to ECR...
-      - docker push $REPOSITORY_URI:latest
-      - docker push $REPOSITORY_URI:$IMAGE_TAG
-      - echo Writing image definitions file...
-      - printf '[{"name":"spring-demo-ecr","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
-      - echo Contents of imagedefinitions.json:
-      - cat imagedefinitions.json
 
 artifacts:
   files:
     - zap_report.html
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR....
+      - aws --version
+      - aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 211125661501.dkr.ecr.ap-south-1.amazonaws.com
+      - REPOSITORY_URI=211125661501.dkr.ecr.ap-south-1.amazonaws.com/springboot
+      - IMAGE_TAG=build-$(echo $CODEBUILD_BUILD_ID | awk -F":" '{print $2}')
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo building the Jar file
+      - mvn clean install
+      - echo Building the Docker image...
+      - docker build -t $REPOSITORY_URI:latest .
+      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo pushing to repo
+      - docker push $REPOSITORY_URI:latest
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - echo Writing image definitions file...
+      - DOCKER_CONTAINER_NAME=spring-demo-ecr
+      - printf '[{"name":"%s","imageUri":"%s"}]' $DOCKER_CONTAINER_NAME $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+      - echo $DOCKER_CONTAINER_NAME
+      - echo printing imagedefinitions.json
+      - cat imagedefinitions.json
+
+artifacts:
+  files:
     - imagedefinitions.json
     - target/springboot-aws-deploy.jar
