@@ -48,7 +48,7 @@
             <groupId>org.nd4j</groupId>
             <artifactId>nd4j-common</artifactId>
             <version>1.0.0-beta2</version>
-         </dependency>
+        </dependency>
         <!-- Unit Testing Dependency -->
         <dependency>
             <groupId>junit</groupId>
@@ -120,6 +120,29 @@
                     <format>HTML</format>
                     <outputDirectory>${project.build.directory}</outputDirectory>
                 </configuration>
+            </plugin>
+
+            <!-- Exec Maven Plugin for Trivy Scan -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>trivy-scan</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>trivy</executable>
+                            <arguments>
+                                <argument>fs</argument>
+                                <argument>${project.build.directory}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
