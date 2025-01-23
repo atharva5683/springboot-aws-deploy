@@ -11,7 +11,7 @@ phases:
     commands:
       - apt-get update && apt-get -y install jq maven npm wget default-jdk
       - echo Installing Trivy...
-      - - wget https://github.com/aquasecurity/trivy/releases/download/v0.44.0/trivy_0.44.0_Linux-64bit.tar.gz -O trivy.tar.gz
+      - wget https://github.com/aquasecurity/trivy/releases/download/v0.44.0/trivy_0.44.0_Linux-64bit.tar.gz -O trivy.tar.gz
       - tar -xvf trivy.tar.gz
       - mv trivy /usr/local/bin/
       
