@@ -8,38 +8,9 @@ phases:
   install:
     runtime-versions:
       java: latest
-  build:
     commands:
-      # Static Application Security Scan (SAST scan) using SonarCloud
-      - mvn clean install
-      - mvn verify sonar:sonar -Dsonar.projectKey=javaprojectawscicd -Dsonar.organization=javaprojectawscicd -Dsonar.host.url=https://sonarcloud.io -Dsonar.token=$TOKEN
-
-      # Quality Gates for Static Application Security Scan (SAST) using SonarCloud
-      - sleep 5
-      - |
-        quality_status=$(curl -s -u $TOKEN: https://sonarcloud.io/api/qualitygates/project_status?projectKey=javaprojectaws | jq -r '.projectStatus.status')
-        echo "SonarCloud analysis status is $quality_status"
-        if [ "$quality_status" = "ERROR" ]; then exit 1; fi
-
-      # Software Composition Analysis Scan (SCA scan) using Snyk
-      - apt-get update && apt-get -y install maven
-      - export SNYK_TOKEN=$SNYK
-      - npm install -g snyk
-      - snyk auth $SNYK
-      - mvn snyk:test -fn
-
-      # Dynamic Application Security Scan (DAST scan) using OWASP ZAP
-      - apt-get update && apt-get -y install wget default-jdk
-      - wget https://github.com/zaproxy/zaproxy/releases/download/v2.16.0/ZAP_2.16.0_Linux.tar.gz
-      - tar -xvf ZAP_2.16.0_Linux.tar.gz
-      - cd ZAP_2.16.0
-      - ./zap.sh -cmd -quickurl https://www.example.com -quickprogress -quickout ../zap_report.html
-
-artifacts:
-  files:
-    - zap_report.html
-
-phases:
+      - apt-get update && apt-get -y install jq maven npm wget default-jdk
+      
   pre_build:
     commands:
       - echo Logging in to Amazon ECR....
@@ -47,29 +18,57 @@ phases:
       - aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 211125661501.dkr.ecr.ap-south-1.amazonaws.com
       - REPOSITORY_URI=211125661501.dkr.ecr.ap-south-1.amazonaws.com/springboot
       - IMAGE_TAG=build-$(echo $CODEBUILD_BUILD_ID | awk -F":" '{print $2}')
+      
   build:
     commands:
       - echo Build started on `date`
       - echo building the Jar file
       - mvn clean install
+      
+      # Static Application Security Scan (SAST scan) using SonarCloud
+      - echo Running SonarCloud SAST scan...
+      - mvn verify sonar:sonar -Dsonar.projectKey=javaprojectawscicd -Dsonar.organization=javaprojectawscicd -Dsonar.host.url=https://sonarcloud.io -Dsonar.token=$TOKEN
+      
+      # Quality Gates for Static Application Security Scan (SAST)
+      - echo Checking SonarCloud Quality Gates...
+      - |
+        quality_status=$(curl -s -u $TOKEN: https://sonarcloud.io/api/qualitygates/project_status?projectKey=javaprojectaws | jq -r '.projectStatus.status')
+        echo "SonarCloud analysis status is $quality_status"
+        if [ "$quality_status" = "ERROR" ]; then exit 1; fi
+      
+      # Software Composition Analysis Scan (SCA scan) using Snyk
+      - echo Running Snyk SCA scan...
+      - export SNYK_TOKEN=$SNYK
+      - npm install -g snyk
+      - snyk auth $SNYK
+      - snyk test
+      
+      # Dynamic Application Security Scan (DAST scan) using OWASP ZAP
+      - echo Running OWASP ZAP DAST scan...
+      - wget https://github.com/zaproxy/zaproxy/releases/download/v2.16.0/ZAP_2.16.0_Linux.tar.gz
+      - tar -xvf ZAP_2.16.0_Linux.tar.gz
+      - cd ZAP_2.16.0
+      - ./zap.sh -cmd -quickurl https://www.example.com -quickprogress -quickout ../zap_report.html
+      
+      # Docker image build
       - echo Building the Docker image...
       - docker build -t $REPOSITORY_URI:latest .
       - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+      
   post_build:
     commands:
       - echo Build completed on `date`
-      - echo pushing to repo
+      - echo Pushing to repo...
       - docker push $REPOSITORY_URI:latest
       - docker push $REPOSITORY_URI:$IMAGE_TAG
       - echo Writing image definitions file...
       - DOCKER_CONTAINER_NAME=spring-demo-ecr
       - printf '[{"name":"%s","imageUri":"%s"}]' $DOCKER_CONTAINER_NAME $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
-      - echo $DOCKER_CONTAINER_NAME
-      - echo printing imagedefinitions.json
+      - echo Printing imagedefinitions.json...
       - cat imagedefinitions.json
 
 artifacts:
   files:
     - imagedefinitions.json
+    - zap_report.html
     - target/springboot-aws-deploy.jar
-
